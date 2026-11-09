@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>FairMint Demo · 免费铸造</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "PingFang SC", sans-serif; background: #0b0b0f; color: #e8e8ee; display: grid; place-items: center; min-height: 100vh; }
+  .card { width: min(92vw, 460px); background: #14141b; border: 1px solid #262633; border-radius: 18px; padding: 28px; }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  .sub { color: #8b8b9e; font-size: 13px; margin-bottom: 22px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 22px; }
+  .stat { background: #1b1b24; border-radius: 12px; padding: 12px; }
+  .stat b { display: block; font-size: 20px; margin-top: 4px; }
+  .stat span { color: #8b8b9e; font-size: 12px; }
+  button { width: 100%; border: 0; border-radius: 12px; padding: 15px; font-size: 16px; font-weight: 700; cursor: pointer; background: #ffd24a; color: #1a1400; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  #msg { margin-top: 14px; font-size: 13px; color: #9a9ab0; word-break: break-all; }
+  a { color: #ffd24a; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>FairMint Demo</h1>
+  <div class="sub">免费铸造 · 每人 1 次 · 上限 10,000 · 无 owner / 无税 / 无暂停</div>
+
+  <div class="stats">
+    <div class="stat"><span>已铸造</span><b id="minted">—</b></div>
+    <div class="stat"><span>我的余额</span><b id="bal">—</b></div>
+  </div>
+
+  <button id="btn">连接钱包</button>
+  <div id="msg"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+  // 部署后替换为实际地址
+  const CONTRACT = "0x369B4849D294Cc4408e75F0f202aFC7f26fCf137";
+  const ABI = [
+    "function mint()",
+    "function mintCount() view returns (uint256)",
+    "function MAX_MINTS() view returns (uint256)",
+    "function balanceOf(address) view returns (uint256)",
+    "function hasMinted(address) view returns (bool)",
+  ];
+  const BSC = { chainId: "0x38", chainName: "BNB Smart Chain", nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 }, rpcUrls: ["https://bsc-dataseed.binance.org"], blockExplorerUrls: ["https://bscscan.com"] };
+
+  let provider, signer, account, contract;
+  const $ = (id) => document.getElementById(id);
+  const msg = (t) => { $("msg").textContent = t; };
+
+  async function refresh() {
+    if (!contract) return;
+    const [minted, max, bal] = await Promise.all([
+      contract.mintCount(), contract.MAX_MINTS(), account ? contract.balanceOf(account) : 0n
+    ]);
+    $("minted").textContent = `${minted} / ${max}`;
+    $("bal").textContent = account ? ethers.formatEther(bal) : "—";
+  }
+
+  async function connect() {
+    if (!window.ethereum) { msg("没有检测到钱包，请用 MetaMask / 币安钱包浏览器打开"); return; }
+    provider = new ethers.BrowserProvider(window.ethereum);
+    try {
+      await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: BSC.chainId }] });
+    } catch (e) {
+      if (e.code === 4902) await window.ethereum.request({ method: "wallet_addEthereumChain", params: [BSC] });
+      else throw e;
+    }
+    await provider.send("eth_requestAccounts", []);
+    signer = await provider.getSigner();
+    account = await signer.getAddress();
+    contract = new ethers.Contract(CONTRACT, ABI, signer);
+    $("btn").textContent = "免费铸造";
+    msg(`已连接 ${account.slice(0, 6)}…${account.slice(-4)}`);
+    await refresh();
+  }
+
+  async function mint() {
+    try {
+      $("btn").disabled = true;
+      msg("请在钱包中确认交易…");
+      const tx = await contract.mint();
+      msg(`已提交：${tx.hash.slice(0, 10)}…，等待确认`);
+      await tx.wait();
+      msg(`铸造成功：${tx.hash}`);
+      await refresh();
+    } catch (e) {
+      msg(e.shortMessage || e.message || String(e));
+    } finally {
+      $("btn").disabled = false;
+    }
+  }
+
+  $("btn").onclick = async () => {
+    if (!account) return connect().catch((e) => msg(e.message || String(e)));
+    return mint();
+  };
+  refresh().catch(() => {});
+</script>
+</body>
+</html>
