@@ -49,16 +49,21 @@
   const BSC = { chainId: "0x38", chainName: "BNB Smart Chain", nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 }, rpcUrls: ["https://bsc-dataseed.binance.org"], blockExplorerUrls: ["https://bscscan.com"] };
 
   let provider, signer, account, contract;
+  const readProvider = new ethers.JsonRpcProvider("https://bsc-dataseed.binance.org");
+  const readContract = new ethers.Contract(CONTRACT, ABI, readProvider);
   const $ = (id) => document.getElementById(id);
   const msg = (t) => { $("msg").textContent = t; };
 
   async function refresh() {
-    if (!contract) return;
-    const [minted, max, bal] = await Promise.all([
-      contract.mintCount(), contract.MAX_MINTS(), account ? contract.balanceOf(account) : 0n
-    ]);
-    $("minted").textContent = `${minted} / ${max}`;
-    $("bal").textContent = account ? ethers.formatEther(bal) : "—";
+    try {
+      const [minted, max, bal] = await Promise.all([
+        readContract.mintCount(), readContract.MAX_MINTS(), account ? readContract.balanceOf(account) : 0n
+      ]);
+      $("minted").textContent = `${minted} / ${max}`;
+      $("bal").textContent = account ? ethers.formatEther(bal) : "—";
+    } catch (e) {
+      msg("读取失败：" + (e.shortMessage || e.message || String(e)));
+    }
   }
 
   async function connect() {
@@ -99,7 +104,7 @@
     if (!account) return connect().catch((e) => msg(e.message || String(e)));
     return mint();
   };
-  refresh().catch(() => {});
+  refresh();
 </script>
 </body>
 </html>
