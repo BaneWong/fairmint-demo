@@ -24,7 +24,7 @@
 <body>
 <div class="card">
   <h1>FairMint Demo</h1>
-  <div class="sub">免费铸造 · 每人 1 次 · 上限 10,000 · 无 owner / 无税 / 无暂停</div>
+  <div class="sub">AI 钱包专属 · 免费铸造 · 每人 1 次 · 上限 10,000 · 无 owner / 无税 / 无暂停</div>
 
   <div class="stats">
     <div class="stat"><span>已铸造</span><b id="minted">—</b></div>
@@ -46,15 +46,46 @@
     "function balanceOf(address) view returns (uint256)",
     "function hasMinted(address) view returns (bool)",
   ];
-  const BSC = { chainId: "0x38", chainName: "BNB Smart Chain", nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 }, rpcUrls: ["https://bsc-dataseed.binance.org"], blockExplorerUrls: ["https://bscscan.com"] };
+  const RPCS = [
+    "https://bsc-rpc.publicnode.com",
+    "https://1rpc.io/bnb",
+    "https://bsc.blockrazor.xyz",
+    "https://bsc-dataseed.bnbchain.org",
+  ];
+  const BSC = { chainId: "0x38", chainName: "BNB Smart Chain", nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 }, rpcUrls: RPCS, blockExplorerUrls: ["https://bscscan.com"] };
+  const REGISTRY = "0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F";
+  const REG_ABI = ["function handleOf(address) view returns (string)"];
 
-  let provider, signer, account, contract;
-  const readProvider = new ethers.JsonRpcProvider("https://bsc-dataseed.binance.org");
-  const readContract = new ethers.Contract(CONTRACT, ABI, readProvider);
+  let provider, signer, account, contract, readProvider, readContract;
   const $ = (id) => document.getElementById(id);
   const msg = (t) => { $("msg").textContent = t; };
 
+  async function pickProvider() {
+    for (const url of RPCS) {
+      try {
+        const p = new ethers.JsonRpcProvider(url);
+        await Promise.race([
+          p.getBlockNumber(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 4000)),
+        ]);
+        return p;
+      } catch (e) { /* try next */ }
+    }
+    throw new Error("所有 RPC 都连不上，请检查网络");
+  }
+
+  async function initRead() {
+    try {
+      readProvider = await pickProvider();
+      readContract = new ethers.Contract(CONTRACT, ABI, readProvider);
+      await refresh();
+    } catch (e) {
+      msg("读取失败：" + (e.message || String(e)));
+    }
+  }
+
   async function refresh() {
+    if (!readContract) return;
     try {
       const [minted, max, bal] = await Promise.all([
         readContract.mintCount(), readContract.MAX_MINTS(), account ? readContract.balanceOf(account) : 0n
@@ -79,8 +110,22 @@
     signer = await provider.getSigner();
     account = await signer.getAddress();
     contract = new ethers.Contract(CONTRACT, ABI, signer);
+
+    if (!readProvider) readProvider = new ethers.JsonRpcProvider(RPCS[0]);
+    const reg = new ethers.Contract(REGISTRY, REG_ABI, readProvider);
+    let handle = "";
+    try { handle = await reg.handleOf(account); } catch (e) { /* ignore */ }
+    if (!handle) {
+      $("btn").textContent = "需要 .ai Agent ID";
+      $("btn").disabled = true;
+      msg(`已连接 ${account.slice(0, 6)}…${account.slice(-4)}，但这个钱包没有 .ai Agent ID，不能铸造`);
+      await refresh();
+      return;
+    }
+
+    $("btn").disabled = false;
     $("btn").textContent = "免费铸造";
-    msg(`已连接 ${account.slice(0, 6)}…${account.slice(-4)}`);
+    msg(`已连接 ${account.slice(0, 6)}…${account.slice(-4)} · Agent ID: ${handle}.ai`);
     await refresh();
   }
 
@@ -101,10 +146,11 @@
   }
 
   $("btn").onclick = async () => {
+    if ($("btn").disabled) return;
     if (!account) return connect().catch((e) => msg(e.message || String(e)));
     return mint();
   };
-  refresh();
+  initRead();
 </script>
 </body>
 </html>
